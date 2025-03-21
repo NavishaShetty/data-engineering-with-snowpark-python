@@ -16,6 +16,7 @@ import snowflake.snowpark.functions as F
 
 
 def create_pos_view(session):
+    session.use_database('HOL_DB')
     session.use_schema('HARMONIZED')
     order_detail = session.table("RAW_POS.ORDER_DETAIL").select(F.col("ORDER_DETAIL_ID"), \
                                                                 F.col("LINE_NUMBER"), \
@@ -110,4 +111,4 @@ if __name__ == "__main__":
     with Session.builder.getOrCreate() as session:
         create_pos_view(session)
         create_pos_view_stream(session)
-#        test_pos_view(session)
+        test_pos_view(session)
