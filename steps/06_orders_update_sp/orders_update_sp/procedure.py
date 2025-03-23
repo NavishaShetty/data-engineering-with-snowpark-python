@@ -13,22 +13,35 @@ from snowflake.snowpark import Session
 import snowflake.snowpark.functions as F
 
 
-def table_exists(session, schema='', name=''):
-    exists = session.sql("SELECT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}') AS TABLE_EXISTS".format(schema, name)).collect()[0]['TABLE_EXISTS']
+# def table_exists(session, database='', schema='', name=''):
+#     exists = session.sql("SELECT EXISTS (SELECT * FROM HOL_DB.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{}.{}' AND TABLE_NAME = '{}') AS TABLE_EXISTS".format(database,schema, name)).collect()[0]['TABLE_EXISTS']
+#     return exists
+def table_exists(session, database='', schema='', name=''):
+    query = f"""
+    SELECT EXISTS (
+        SELECT 1
+        FROM {database}.INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_SCHEMA = '{schema}' AND TABLE_NAME = '{name}'
+    ) AS TABLE_EXISTS
+    """
+    exists = session.sql(query).collect()[0]['TABLE_EXISTS']
     return exists
 
 def create_orders_table(session):
-    _ = session.sql("CREATE TABLE HARMONIZED.ORDERS LIKE HARMONIZED.POS_FLATTENED_V").collect()
-    _ = session.sql("ALTER TABLE HARMONIZED.ORDERS ADD COLUMN META_UPDATED_AT TIMESTAMP").collect()
+    if not table_exists(session, database='HOL_DB', schema='HARMONIZED', name='ORDERS'):
+        _ = session.sql("CREATE TABLE HOL_DB.HARMONIZED.ORDERS LIKE HOL_DB.HARMONIZED.POS_FLATTENED_V").collect()
+        _ = session.sql("ALTER TABLE HOL_DB.HARMONIZED.ORDERS ADD COLUMN META_UPDATED_AT TIMESTAMP").collect()
+    else:
+        print("Table HOL_DB.HARMONIZED.ORDERS already exists.")
 
 def create_orders_stream(session):
-    _ = session.sql("CREATE STREAM HARMONIZED.ORDERS_STREAM ON TABLE HARMONIZED.ORDERS").collect()
+    _ = session.sql("CREATE STREAM HOL_DB.HARMONIZED.ORDERS_STREAM ON TABLE HOL_DB.HARMONIZED.ORDERS").collect()
 
 def merge_order_updates(session):
     _ = session.sql('ALTER WAREHOUSE HOL_WH SET WAREHOUSE_SIZE = XLARGE WAIT_FOR_COMPLETION = TRUE').collect()
 
-    source = session.table('HARMONIZED.POS_FLATTENED_V_STREAM')
-    target = session.table('HARMONIZED.ORDERS')
+    source = session.table('HOL_DB.HARMONIZED.POS_FLATTENED_V_STREAM')
+    target = session.table('HOL_DB.HARMONIZED.ORDERS')
 
     # TODO: Is the if clause supposed to be based on "META_UPDATED_AT"?
     cols_to_update = {c: source[c] for c in source.schema.names if "METADATA" not in c}
@@ -43,7 +56,7 @@ def merge_order_updates(session):
 
 def main(session: Session) -> str:
     # Create the ORDERS table and ORDERS_STREAM stream if they don't exist
-    if not table_exists(session, schema='HARMONIZED', name='ORDERS'):
+    if not table_exists(session, database='HOL_DB', schema='HARMONIZED', name='ORDERS'):
         create_orders_table(session)
         create_orders_stream(session)
 

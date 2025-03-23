@@ -12,7 +12,7 @@ import snowflake.snowpark.functions as F
 
 
 def table_exists(session, schema='', name=''):
-    exists = session.sql("SELECT EXISTS (SELECT * FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}') AS TABLE_EXISTS".format(schema, name)).collect()[0]['TABLE_EXISTS']
+    exists = session.sql("SELECT EXISTS (SELECT * FROM HOL_DB.INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = '{}' AND TABLE_NAME = '{}') AS TABLE_EXISTS".format(schema, name)).collect()[0]['TABLE_EXISTS']
     return exists
 
 def create_daily_city_metrics_table(session):
@@ -31,18 +31,18 @@ def create_daily_city_metrics_table(session):
 
     dcm = session.create_dataframe([[None]*len(DAILY_CITY_METRICS_SCHEMA.names)], schema=DAILY_CITY_METRICS_SCHEMA) \
                         .na.drop() \
-                        .write.mode('overwrite').save_as_table('ANALYTICS.DAILY_CITY_METRICS')
-    dcm = session.table('ANALYTICS.DAILY_CITY_METRICS')
+                        .write.mode('overwrite').save_as_table('HOL_DB.ANALYTICS.DAILY_CITY_METRICS')
+    dcm = session.table('HOL_DB.ANALYTICS.DAILY_CITY_METRICS')
 
 
 def merge_daily_city_metrics(session):
     _ = session.sql('ALTER WAREHOUSE HOL_WH SET WAREHOUSE_SIZE = XLARGE WAIT_FOR_COMPLETION = TRUE').collect()
 
-    print("{} records in stream".format(session.table('HARMONIZED.ORDERS_STREAM').count()))
-    orders_stream_dates = session.table('HARMONIZED.ORDERS_STREAM').select(F.col("ORDER_TS_DATE").alias("DATE")).distinct()
+    print("{} records in stream".format(session.table('HOL_DB.HARMONIZED.ORDERS_STREAM').count()))
+    orders_stream_dates = session.table('HOL_DB.HARMONIZED.ORDERS_STREAM').select(F.col("ORDER_TS_DATE").alias("DATE")).distinct()
     orders_stream_dates.limit(5).show()
 
-    orders = session.table("HARMONIZED.ORDERS_STREAM").group_by(F.col('ORDER_TS_DATE'), F.col('PRIMARY_CITY'), F.col('COUNTRY')) \
+    orders = session.table("HOL_DB.HARMONIZED.ORDERS_STREAM").group_by(F.col('ORDER_TS_DATE'), F.col('PRIMARY_CITY'), F.col('COUNTRY')) \
                                         .agg(F.sum(F.col("PRICE")).as_("price_nulls")) \
                                         .with_column("DAILY_SALES", F.call_builtin("ZEROIFNULL", F.col("price_nulls"))) \
                                         .select(F.col('ORDER_TS_DATE').alias("DATE"), F.col("PRIMARY_CITY").alias("CITY_NAME"), \
@@ -50,7 +50,7 @@ def merge_daily_city_metrics(session):
 #    orders.limit(5).show()
 
     weather_pc = session.table("FROSTBYTE_WEATHERSOURCE.ONPOINT_ID.POSTAL_CODES")
-    countries = session.table("RAW_POS.COUNTRY")
+    countries = session.table("HOL_DB.RAW_POS.COUNTRY")
     weather = session.table("FROSTBYTE_WEATHERSOURCE.ONPOINT_ID.HISTORY_DAY")
     weather = weather.join(weather_pc, (weather['POSTAL_CODE'] == weather_pc['POSTAL_CODE']) & (weather['COUNTRY'] == weather_pc['COUNTRY']), rsuffix='_pc')
     weather = weather.join(countries, (weather['COUNTRY'] == countries['ISO_COUNTRY']) & (weather['CITY_NAME'] == countries['CITY']), rsuffix='_c')
@@ -59,9 +59,9 @@ def merge_daily_city_metrics(session):
     weather_agg = weather.group_by(F.col('DATE_VALID_STD'), F.col('CITY_NAME'), F.col('COUNTRY_C')) \
                         .agg( \
                             F.avg('AVG_TEMPERATURE_AIR_2M_F').alias("AVG_TEMPERATURE_F"), \
-                            F.avg(F.call_udf("ANALYTICS.FAHRENHEIT_TO_CELSIUS_UDF", F.col("AVG_TEMPERATURE_AIR_2M_F"))).alias("AVG_TEMPERATURE_C"), \
+                            F.avg(F.call_udf("HOL_DB.ANALYTICS.FAHRENHEIT_TO_CELSIUS_UDF", F.col("AVG_TEMPERATURE_AIR_2M_F"))).alias("AVG_TEMPERATURE_C"), \
                             F.avg("TOT_PRECIPITATION_IN").alias("AVG_PRECIPITATION_IN"), \
-                            F.avg(F.call_udf("ANALYTICS.INCH_TO_MILLIMETER_UDF", F.col("TOT_PRECIPITATION_IN"))).alias("AVG_PRECIPITATION_MM"), \
+                            F.avg(F.call_udf("HOL_DB.ANALYTICS.INCH_TO_MILLIMETER_UDF", F.col("TOT_PRECIPITATION_IN"))).alias("AVG_PRECIPITATION_MM"), \
                             F.max(F.col("MAX_WIND_SPEED_100M_MPH")).alias("MAX_WIND_SPEED_100M_MPH") \
                         ) \
                         .select(F.col("DATE_VALID_STD").alias("DATE"), F.col("CITY_NAME"), F.col("COUNTRY_C").alias("COUNTRY_DESC"), \
@@ -85,7 +85,7 @@ def merge_daily_city_metrics(session):
     metadata_col_to_update = {"META_UPDATED_AT": F.current_timestamp()}
     updates = {**cols_to_update, **metadata_col_to_update}
 
-    dcm = session.table('ANALYTICS.DAILY_CITY_METRICS')
+    dcm = session.table('HOL_DB.ANALYTICS.DAILY_CITY_METRICS')
     dcm.merge(daily_city_metrics_stg, (dcm['DATE'] == daily_city_metrics_stg['DATE']) & (dcm['CITY_NAME'] == daily_city_metrics_stg['CITY_NAME']) & (dcm['COUNTRY_DESC'] == daily_city_metrics_stg['COUNTRY_DESC']), \
                         [F.when_matched().update(updates), F.when_not_matched().insert(updates)])
 
